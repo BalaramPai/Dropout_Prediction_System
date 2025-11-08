@@ -465,8 +465,26 @@ def main():
     print("\n✅ Saved predictions.csv successfully.")
     print("First few rows of predictions:\n", df_predictions.head())
 
+    # === Risk Summary ===
+    at_risk = df_final[df_final["predicted_label"] == 1].copy()
+    num_at_risk = len(at_risk)
+    
+    print(f"\n⚠️ {num_at_risk} students are predicted to be at risk of dropping out.")
+    
+    if num_at_risk > 0:
+        # Sort by highest dropout probability
+        at_risk = at_risk.sort_values(by="dropout_prob", ascending=False)
+        print("\nTop at-risk students:")
+        display_cols = ["student_id", "avg_grade", "attendance_rate", "failed_courses", "dropout_prob"]
+        # Show top 10 or all if fewer
+        print(at_risk[display_cols].head(10).to_string(index=False))
+    else:
+        print("✅ Great! No students are predicted to be at risk.")
+
+
 if __name__ == "__main__":
     main()
+
 
 
 
