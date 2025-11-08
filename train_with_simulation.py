@@ -390,16 +390,35 @@ def safe_smote_resample(X_train, y_train):
     return Xr, yr, True
 
 def choose_threshold(y_true, y_prob, min_precision=0.1):
-    precisions, recalls, thresholds = precision_recall_curve(y_true, y_prob)
-    mask = precisions >= min_precision
-    if mask.any():
-        valid_thresholds = thresholds[mask[:-1]]
-        valid_recalls = recalls[mask[:-1]]
-        if len(valid_thresholds) > 0:
-            best_idx = np.nanargmax(valid_recalls)
-            return float(valid_thresholds[best_idx])
-    f1s = (2 * precisions[:-1] * recalls) / (precisions[:-1] + recalls + 1e-12)
-    return float(thresholds[np.nanargmax(f1s)])
+    """
+    Choose an optimal threshold:
+    - Prefer max recall while maintaining min precision
+    - Fallback to best F1-score
+    - Safe against shape mismatch errors
+    """
+    try:
+        precisions, recalls, thresholds = precision_recall_curve(y_true, y_prob)
+
+        # Match lengths properly
+        precisions = precisions[:-1]
+        recalls = recalls[:-1]
+
+        mask = precisions >= min_precision
+        if mask.any():
+            valid_recalls = recalls[mask]
+            valid_thresholds = thresholds[mask]
+            if len(valid_thresholds) > 0:
+                best_idx = np.nanargmax(valid_recalls)
+                return float(valid_thresholds[best_idx])
+
+        # Fallback to threshold that gives best F1-score
+        f1s = (2 * precisions * recalls) / (precisions + recalls + 1e-12)
+        best_f1_idx = np.nanargmax(f1s)
+        return float(thresholds[best_f1_idx])
+    except Exception as e:
+        print("⚠️ Threshold selection failed, defaulting to 0.5:", e)
+        return 0.5
+
 
 def train_and_report(X, y):
     if len(np.unique(y)) < 2:
@@ -448,6 +467,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
