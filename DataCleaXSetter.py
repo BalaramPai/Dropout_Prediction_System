@@ -178,14 +178,22 @@ def compute_grade_trend(academic):
     return pd.DataFrame(rows)
 
 def main():
-    engine = connect_engine(DB_USER, DB_PASS, DB_HOST, DB_NAME)
-
-    # 1) Load tables via SQLAlchemy engine
-    students = pd.read_sql("SELECT * FROM students", engine)
-    academic = pd.read_sql("SELECT * FROM academic_records", engine)
-    attendance = pd.read_sql("SELECT * FROM attendance", engine)
-    behavioral = pd.read_sql("SELECT * FROM behavioral", engine)
-    dropout = pd.read_sql("SELECT * FROM dropout_labels", engine)
+    # --- FALLBACK MODE FOR COLAB: use CSVs if MySQL not available ---
+    try:
+        engine = connect_engine(DB_USER, DB_PASS, DB_HOST, DB_NAME)
+        students = pd.read_sql("SELECT * FROM students", engine)
+        academic = pd.read_sql("SELECT * FROM academic_records", engine)
+        attendance = pd.read_sql("SELECT * FROM attendance", engine)
+        behavioral = pd.read_sql("SELECT * FROM behavioral", engine)
+        dropout = pd.read_sql("SELECT * FROM dropout_labels", engine)
+        print("✅ Loaded data from MySQL")
+    except Exception as e:
+        print("⚠️ MySQL not reachable, loading from local CSVs instead:", e)
+        students = pd.read_csv("students.csv")
+        academic = pd.read_csv("academic_records.csv")
+        attendance = pd.read_csv("attendance.csv")
+        behavioral = pd.read_csv("behavioral.csv")
+        dropout = pd.read_csv("dropout_labels.csv")
 
     # 2) Clean target: normalize values and take latest snapshot if multiple
     # Replace placeholder 127 with 0 (not dropped) if present
@@ -312,6 +320,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
