@@ -325,8 +325,6 @@
 # if __name__ == "__main__":
 #     main()
 
-
-#train_with_simulation.py (for collab)
 """
 train_with_simulation_colab.py
 Colab-friendly training pipeline for Dropout Prediction.
@@ -371,7 +369,7 @@ def load_data():
     return X, y
 
 def preprocess_features(X):
-    for c in ['student_pk','student_id','studentid','id']:
+    for c in ['student_pk', 'student_id', 'studentid', 'id']:
         if c in X.columns:
             X = X.drop(columns=[c])
     if 'household_income' in X.columns:
@@ -382,9 +380,12 @@ def preprocess_features(X):
     return X_scaled
 
 def safe_smote_resample(X_train, y_train):
-    if not HAS_SMOTE: return X_train, y_train, False
-    pos = (y_train==1).sum(); neg = (y_train==0).sum()
-    if pos < 2 or neg < 2: return X_train, y_train, False
+    if not HAS_SMOTE:
+        return X_train, y_train, False
+    pos = (y_train == 1).sum()
+    neg = (y_train == 0).sum()
+    if pos < 2 or neg < 2:
+        return X_train, y_train, False
     sm = SMOTE(random_state=RANDOM_SEED)
     Xr, yr = sm.fit_resample(X_train, y_train)
     return Xr, yr, True
@@ -398,11 +399,7 @@ def choose_threshold(y_true, y_prob, min_precision=0.1):
     """
     try:
         precisions, recalls, thresholds = precision_recall_curve(y_true, y_prob)
-
-        # Match lengths properly
-        precisions = precisions[:-1]
-        recalls = recalls[:-1]
-
+        precisions, recalls = precisions[:-1], recalls[:-1]
         mask = precisions >= min_precision
         if mask.any():
             valid_recalls = recalls[mask]
@@ -410,8 +407,7 @@ def choose_threshold(y_true, y_prob, min_precision=0.1):
             if len(valid_thresholds) > 0:
                 best_idx = np.nanargmax(valid_recalls)
                 return float(valid_thresholds[best_idx])
-
-        # Fallback to threshold that gives best F1-score
+        # fallback: best F1
         f1s = (2 * precisions * recalls) / (precisions + recalls + 1e-12)
         best_f1_idx = np.nanargmax(f1s)
         return float(thresholds[best_f1_idx])
@@ -419,24 +415,27 @@ def choose_threshold(y_true, y_prob, min_precision=0.1):
         print("⚠️ Threshold selection failed, defaulting to 0.5:", e)
         return 0.5
 
-
 def train_and_report(X, y):
     if len(np.unique(y)) < 2:
         print("❌ Only one class found — cannot train supervised model.")
-        return
+        return None, 0.5
+
     X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.2, random_state=RANDOM_SEED)
-    print("Train pos/neg:", int((y_train==1).sum()), int((y_train==0).sum()))
+    print("Train pos/neg:", int((y_train == 1).sum()), int((y_train == 0).sum()))
     X_train_res, y_train_res, used_smote = safe_smote_resample(X_train, y_train)
     print("SMOTE applied." if used_smote else "SMOTE skipped.")
-    pos = max(1,(y_train==1).sum()); neg = max(1,(y_train==0).sum())
-    scale_pos_weight = 1.0 if used_smote else neg/pos
+    pos = max(1, (y_train == 1).sum())
+    neg = max(1, (y_train == 0).sum())
+    scale_pos_weight = 1.0 if used_smote else neg / pos
+
     model = XGBClassifier(
         n_estimators=200, max_depth=4, learning_rate=0.05,
         eval_metric='logloss', scale_pos_weight=scale_pos_weight,
         random_state=RANDOM_SEED, use_label_encoder=False
     )
     model.fit(X_train_res, y_train_res)
-    y_prob = model.predict_proba(X_test)[:,1]
+
+    y_prob = model.predict_proba(X_test)[:, 1]
     thresh = choose_threshold(y_test.values, y_prob)
     y_pred = (y_prob >= thresh).astype(int)
     print(f"Chosen threshold = {thresh:.3f}\n")
@@ -452,11 +451,14 @@ def main():
     print("Loading data...")
     X, y = load_data()
     print("Dataset loaded:", X.shape, "label counts:", y.value_counts().to_dict())
+
     X_proc = preprocess_features(X)
     model, thresh = train_and_report(X_proc, y)
     if model is None:
         return
-    final_probs = model.predict_proba(X_proc)[:,1]
+
+    # --- Predictions ---
+    final_probs = model.predict_proba(X_proc)[:, 1]
     final_preds = (final_probs >= thresh).astype(int)
     df_predictions = X.copy()
     df_predictions['predicted_label'] = final_preds
@@ -466,21 +468,29 @@ def main():
     print("First few rows of predictions:\n", df_predictions.head())
 
     # === Risk Summary ===
-    at_risk = df_final[df_final["predicted_label"] == 1].copy()
+    at_risk = df_predictions[df_predictions["predicted_label"] == 1].copy()
     num_at_risk = len(at_risk)
-    
+
     print(f"\n⚠️ {num_at_risk} students are predicted to be at risk of dropping out.")
-    
+
     if num_at_risk > 0:
         # Sort by highest dropout probability
         at_risk = at_risk.sort_values(by="dropout_prob", ascending=False)
         print("\nTop at-risk students:")
-        display_cols = ["student_id", "avg_grade", "attendance_rate", "failed_courses", "dropout_prob"]
-        # Show top 10 or all if fewer
+        display_cols = ["avg_grade", "attendance_rate", "failed_courses", "dropout_prob"]
+        for col in display_cols:
+            if col not in at_risk.columns:
+                at_risk[col] = np.nan
         print(at_risk[display_cols].head(10).to_string(index=False))
     else:
         print("✅ Great! No students are predicted to be at risk.")
 
+    # Save summary
+    with open("predictions_summary.txt", "w") as f:
+        f.write(f"{num_at_risk} students predicted to be at risk.\n\n")
+        if num_at_risk > 0:
+            f.write(at_risk[display_cols].head(20).to_string(index=False))
+    print("\n📁 Summary saved to predictions_summary.txt")
 
 if __name__ == "__main__":
     main()
